@@ -1,80 +1,68 @@
 
 import pandas as pd
 import numpy as np
-
-
+import itertools
 
 
 # Load the spreadsheet
-file_path = 'vegasodds.xlsx'  # Correct the file path if needed
-spreadsheet = pd.read_excel(file_path, index_col=0)
+file_path = 'vegasodds.xlsx'
+df = pd.read_excel(file_path, index_col=0)
 
 # Function to convert spread to win probability
 def spread_to_probability(spread):
     return 1 / (1 + np.exp(spread / 2.2))
 
 # Convert the spreads to probabilities
-for week in spreadsheet.columns:
-    spreadsheet[week] = spreadsheet[week].apply(spread_to_probability)
+for week in df.columns:
+    df[week] = df[week].apply(spread_to_probability)
 
-# Initialize list to keep track of picks - so that team's that are picked in an earlier week won't be chosen again
-picked_teams = []
 
-# Example restriction dictionary
-restrictions = {'Bengals': ['Week1', 'Week3']}
+# List of teams you would like to exclude (e.g., Teams you've already picked)
+excluded_indices = ['Cowboys']
+# Filter out the excluded indices
+df = df.drop(excluded_indices)
 
-def recommend_pick(schedule, picked_teams, restrictions):
-    weeks = schedule.columns
-    teams = schedule.index
 
-    # Dynamic programming table to store the max probability
-    dp = pd.DataFrame(index=teams, columns=weeks, data=0.0)
-    
-    # Fill in the probabilities for the first week
-    for team in teams:
-        if team not in restrictions or weeks[0] not in restrictions[team]:
-            dp.at[team, weeks[0]] = schedule.at[team, weeks[0]]
-        else:
-            dp.at[team, weeks[0]] = -np.inf  # Set to negative infinity to avoid picking this team in the restricted week
-    
-    # Fill the DP table
-    for i in range(1, len(weeks)):
-        for team in teams:
-            if team not in picked_teams:
-                max_prob = -np.inf
-                for prev_team in teams:
-                    if prev_team not in picked_teams and dp.loc[prev_team, weeks[i-1]] != -np.inf:
-                        prob = dp.loc[prev_team, weeks[i-1]] + schedule.loc[team, weeks[i]]
-                        if prob > max_prob:
-                            max_prob = prob
-                if team not in restrictions or weeks[i] not in restrictions[team]:
-                    dp.loc[team, weeks[i]] = max_prob
-                else:
-                    dp.loc[team, weeks[i]] = -np.inf  # Set to negative infinity to avoid picking this team in the restricted week
-    
-    # Backtrack to find the picks
-    picks = []
-    for week in weeks:
-        best_team = dp[week].idxmax()
-        while dp.at[best_team, week] == -np.inf:
-            dp.drop(index=best_team, inplace=True)
-            best_team = dp[week].idxmax()
-        picks.append(best_team)
-        picked_teams.append(best_team)
-        dp.drop(index=best_team, inplace=True)
-    
-    return picks
+# Generate all combinations of picking 1 record from each "Week" column
+week_columns = df.filter(like="Week")
+combinations = list(itertools.product(*[week_columns[col] for col in week_columns.columns]))
+# Convert the combinations into a DataFrame
+combinations_df = pd.DataFrame(combinations, columns=week_columns.columns)
+
+# Create an associated dataframe that has the team names associated with each win probability
+# Create a mapping of value to index for each column
+value_to_index = {}
+for col in df.columns:
+    value_to_index[col] = {value: idx for idx, value in df[col].items()}
+
+# Replace the values in combinations_df with their associated index values
+index_combinations_df = combinations_df.apply(
+    lambda row: pd.Series({col: value_to_index[col][row[col]] for col in row.index}),
+    axis=1
+)
+
+# Remove rows from combinations_df and index_combinations_df where the same team was selected more than once
+combinations_df = combinations_df.loc[
+    ~(index_combinations_df.nunique(axis=1) < index_combinations_df.shape[1])
+]
+
+index_combinations_df = index_combinations_df.loc[
+    ~(index_combinations_df.nunique(axis=1) < index_combinations_df.shape[1])
+]
 
 
 
+## Get the combination that gives the highest average win probability
+# Calculate the average value for each row
+combinations_df['average'] = combinations_df.mean(axis=1)
+# Find the row with the highest average value
+row_with_max_average = combinations_df.loc[combinations_df['average'].idxmax()]
 
-# Get the recommended picks
-picks = recommend_pick(spreadsheet, picked_teams, restrictions)
 
-# Print the recommended picks
-for week, pick in zip(spreadsheet.columns, picks):
-    print(f"{week} pick: {pick}")
-
-print("Picks:", picks)
-
+## Get the combination that gives the highest number of weeks with a probability above 90%
+# Count the number of values above 90% only in columns with "Week" in the name
+week_columns = combinations_df.filter(like="Week")
+combinations_df['count_above_90'] = (week_columns > 0.9).sum(axis=1)
+# Find the row with the highest count of values above 90%
+row_with_most_above_90 = combinations_df.loc[combinations_df['count_above_90'].idxmax()]
 
