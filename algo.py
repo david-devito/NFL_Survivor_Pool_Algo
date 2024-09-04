@@ -27,7 +27,7 @@ df = df.drop(excluded_indices)
 # Simulated Annealing Parameters
 initial_temperature = 2000
 cooling_rate = 0.99
-iterations = 20000
+iterations = 10000
 topNSolutionNum = 1000
 
 # Function to calculate the objective (average probability)
@@ -156,6 +156,9 @@ print("Highest average probability:", best_score)
 
 
 topNSolutions.to_csv('TopNSolutions.csv')
+
+optimalChoices = topNSolutions.groupby('Week1').count().sort_values('Score',ascending=False)['Score'].head(5)
+print(optimalChoices)
 
 
 
